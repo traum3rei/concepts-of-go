@@ -49,7 +49,7 @@ class ParticleSimulation {
                 struct Particle {
                     position: vec2<f32>,
                     velocity: vec2<f32>,
-                    color: vec3<f32>,
+                    color: vec4<f32>,
                 }
 
                 struct Uniforms {
@@ -135,15 +135,16 @@ class ParticleSimulation {
                 struct Particle {
                     position: vec2<f32>,
                     velocity: vec2<f32>,
-                    color: vec3<f32>,
+                    color: vec4<f32>,
                 }
 
                 struct VertexOutput {
                     @builtin(position) position: vec4<f32>,
-                    @location(0) color: vec3<f32>,
+                    @location(0) color: vec4<f32>,
                 }
 
                 @group(0) @binding(0) var<storage, read> particles: array<Particle>;
+                @group(0) @binding(1) var<uniform> uniforms: Uniforms;
 
                 @vertex
                 fn vs_main(@builtin(vertex_index) vertexIndex: u32) -> VertexOutput {
@@ -170,8 +171,8 @@ class ParticleSimulation {
                     
                     // Convert to clip space (0,0 to 800,600 -> -1,1 to 1,-1)
                     let clipPos = vec2<f32>(
-                        (worldPos.x / 400.0) - 1.0,
-                        1.0 - (worldPos.y / 300.0)
+                        (worldPos.x / uniforms.width)*2.0 - 1.0,
+                        1.0 - (worldPos.y / uniforms.height)*2.0
                     );
                     
                     var output: VertexOutput;
@@ -185,7 +186,7 @@ class ParticleSimulation {
         this.fragmentShader = this.device.createShaderModule({
             code: `
                 @fragment
-                fn fs_main(@location(0) color: vec3<f32>) -> @location(0) vec4<f32> {
+                fn fs_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
                     return vec4<f32>(color, 1.0);
                 }
             `
@@ -194,20 +195,20 @@ class ParticleSimulation {
 
     async setupBuffers() {
         
-        const particleSize = 7 * 4; 
+        const particleSize = 8 * 4; 
         this.particleBuffer = this.device.createBuffer({
             size: this.numParticles * particleSize,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST,
+            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX,
         });
 
         // Initialize particles as a water blob for fluid simulation (This is kinda scuffed ngl)
-        const particleData = new Float32Array(this.numParticles * 7);
+        const particleData = new Float32Array(this.numParticles * 8);
         const centerX = 400;
         const centerY = 300;
         const blobRadius = 80;
         
         for (let i = 0; i < this.numParticles; i++) {
-            const baseIndex = i * 7;
+            const baseIndex = i * 8;
             
             // Create a circular blob of particles
             const angle = (i / this.numParticles) * 2 * Math.PI;
@@ -221,6 +222,7 @@ class ParticleSimulation {
             particleData[baseIndex + 4] = 0.1 + Math.random() * 0.3; // r 
             particleData[baseIndex + 5] = 0.3 + Math.random() * 0.4; // g
             particleData[baseIndex + 6] = 0.7 + Math.random() * 0.3; // b 
+            particleData[baseIndex + 7] = 1.0; // a 
         }
 
         this.device.queue.writeBuffer(this.particleBuffer, 0, particleData);
