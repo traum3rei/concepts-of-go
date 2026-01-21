@@ -7,7 +7,7 @@ class ParticleSimulation {
         this.particleBuffer = null;
         this.uniformBuffer = null;
         this.bindGroup = null;
-        this.numParticles = 10000;
+        this.numParticles = 3000;
         this.lastTime = 0;
         this.frameCount = 0;
         this.fpsElement = document.getElementById('fps');
@@ -73,59 +73,75 @@ class ParticleSimulation {
                     let particle = particles[index];
                     var force = vec2<f32>(0.0, 0.0);
                     
-                    // Gravity
-                    force.y -= uniforms.gravity;
-                    
-                    // Fluid pressure and viscosity forces
-                    var pressure = 0.0;
-                    var viscosity = vec2<f32>(0.0, 0.0);
-                    
+                    // Gravity (positive Y is down in screen coords)
+                    force.y += uniforms.gravity;
+
                     // Calculate forces from nearby particles
+                    let smoothingRadius = 25.0;
+
                     for (var i = 0u; i < arrayLength(&particles); i++) {
                         if (i == index) {
                             continue;
                         }
-                        
+
                         let other = particles[i];
                         let dx = particle.position.x - other.position.x;
                         let dy = particle.position.y - other.position.y;
-                        let distance = sqrt(dx * dx + dy * dy);
-                        
-                        if (distance < 20.0 && distance > 0.001) {
-                            // Pressure force (repulsion)
-                            let pressureForce = 100.0 / (distance * distance);
-                            let pressureX = (dx / distance) * pressureForce;
-                            let pressureY = (dy / distance) * pressureForce;
-                            force.x += pressureX;
-                            force.y += pressureY;
-                            
-                            // Viscosity force (attraction/damping)
-                            let viscosityForce = 0.1;
-                            let velDiffX = other.velocity.x - particle.velocity.x;
-                            let velDiffY = other.velocity.y - particle.velocity.y;
-                            force.x += velDiffX * viscosityForce;
-                            force.y += velDiffY * viscosityForce;
+                        let distSq = dx * dx + dy * dy;
+
+                        if (distSq < smoothingRadius * smoothingRadius && distSq > 0.01) {
+                            let distance = sqrt(distSq);
+                            let normalX = dx / distance;
+                            let normalY = dy / distance;
+
+                            // Pressure force 
+                            let q = 1.0 - distance / smoothingRadius;
+                            let pressureForce = 500.0 * q * q;
+                            force.x += normalX * pressureForce;
+                            force.y += normalY * pressureForce;
+
+                            // Viscosity 
+                            let viscosityForce = 0.02 * q;
+                            force.x += (other.velocity.x - particle.velocity.x) * viscosityForce;
+                            force.y += (other.velocity.y - particle.velocity.y) * viscosityForce;
                         }
                     }
-                    
+
                     // Apply forces to velocity
                     particles[index].velocity += force * uniforms.deltaTime;
-                    
+
+                    // Clamp velocity to prevent instability
+                    let maxSpeed = 500.0;
+                    let speed = length(particles[index].velocity);
+                    if (speed > maxSpeed) {
+                        particles[index].velocity = (particles[index].velocity / speed) * maxSpeed;
+                    }
+
                     // Update position
                     particles[index].position += particles[index].velocity * uniforms.deltaTime;
-                    
-                    // Boundary collision with damping
-                    if (particles[index].position.x < 10.0 || particles[index].position.x > uniforms.width - 10.0) {
-                        particles[index].velocity.x *= -0.3;
-                        particles[index].position.x = clamp(particles[index].position.x, 10.0, uniforms.width - 10.0);
+
+                    // Boundary collision with bounce
+                    let margin = 5.0;
+                    let bounce = 0.5;
+
+                    if (particles[index].position.x < margin) {
+                        particles[index].velocity.x = abs(particles[index].velocity.x) * bounce;
+                        particles[index].position.x = margin;
+                    } else if (particles[index].position.x > uniforms.width - margin) {
+                        particles[index].velocity.x = -abs(particles[index].velocity.x) * bounce;
+                        particles[index].position.x = uniforms.width - margin;
                     }
-                    if (particles[index].position.y < 10.0 || particles[index].position.y > uniforms.height - 10.0) {
-                        particles[index].velocity.y *= -0.3;
-                        particles[index].position.y = clamp(particles[index].position.y, 10.0, uniforms.height - 10.0);
+
+                    if (particles[index].position.y < margin) {
+                        particles[index].velocity.y = abs(particles[index].velocity.y) * bounce;
+                        particles[index].position.y = margin;
+                    } else if (particles[index].position.y > uniforms.height - margin) {
+                        particles[index].velocity.y = -abs(particles[index].velocity.y) * bounce;
+                        particles[index].position.y = uniforms.height - margin;
                     }
-                    
-                    // Damping for stability
-                    particles[index].velocity *= 0.99;
+
+                    // Light damping for stability
+                    particles[index].velocity *= 0.998;
                 }
             `
         });
@@ -136,6 +152,14 @@ class ParticleSimulation {
                     position: vec2<f32>,
                     velocity: vec2<f32>,
                     color: vec4<f32>,
+                }
+
+                struct Uniforms {
+                    deltaTime: f32,
+                    width: f32,
+                    height: f32,
+                    gravity: f32,
+                    _padding: f32,
                 }
 
                 struct VertexOutput {
@@ -152,15 +176,13 @@ class ParticleSimulation {
                     let vertexInParticle = vertexIndex % 6u;
                     
                     let particle = particles[particleIndex];
-                    let size = 4.0; // Particle size
+                    let size = 2.5; // Particle size
                     
                     // Create two triangles to form a quad for each particle
                     let offsets = array<vec2<f32>, 6>(
-                        // Triangle 1: bottom-left, bottom-right, top-left
                         vec2<f32>(-size, -size), // 0: bottom-left
                         vec2<f32>( size, -size), // 1: bottom-right  
                         vec2<f32>(-size,  size), // 2: top-left
-                        // Triangle 2: bottom-right, top-right, top-left
                         vec2<f32>( size, -size), // 3: bottom-right
                         vec2<f32>( size,  size), // 4: top-right
                         vec2<f32>(-size,  size)  // 5: top-left
@@ -187,7 +209,7 @@ class ParticleSimulation {
             code: `
                 @fragment
                 fn fs_main(@location(0) color: vec4<f32>) -> @location(0) vec4<f32> {
-                    return vec4<f32>(color, 1.0);
+                    return color;
                 }
             `
         });
@@ -201,35 +223,27 @@ class ParticleSimulation {
             usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_DST | GPUBufferUsage.VERTEX,
         });
 
-        // Initialize particles as a water blob for fluid simulation (This is kinda scuffed ngl)
         const particleData = new Float32Array(this.numParticles * 8);
-        const centerX = 400;
-        const centerY = 300;
-        const blobRadius = 80;
-        
+
         for (let i = 0; i < this.numParticles; i++) {
             const baseIndex = i * 8;
-            
-            // Create a circular blob of particles
-            const angle = (i / this.numParticles) * 2 * Math.PI;
-            const radius = Math.random() * blobRadius;
-            particleData[baseIndex + 0] = centerX + Math.cos(angle) * radius; // x
-            particleData[baseIndex + 1] = centerY + Math.sin(angle) * radius; // y
-            particleData[baseIndex + 2] = 0; // vx 
-            particleData[baseIndex + 3] = 0; // vy 
-            
-            // Water-like blue colors
-            particleData[baseIndex + 4] = 0.1 + Math.random() * 0.3; // r 
+
+            particleData[baseIndex + 0] = 50 + Math.random() * 700; 
+            particleData[baseIndex + 1] = 50 + Math.random() * 250; 
+            particleData[baseIndex + 2] = (Math.random() - 0.5) * 50; 
+            particleData[baseIndex + 3] = Math.random() * 20;
+
+            particleData[baseIndex + 4] = 0.1 + Math.random() * 0.3; // r
             particleData[baseIndex + 5] = 0.3 + Math.random() * 0.4; // g
-            particleData[baseIndex + 6] = 0.7 + Math.random() * 0.3; // b 
-            particleData[baseIndex + 7] = 1.0; // a 
+            particleData[baseIndex + 6] = 0.7 + Math.random() * 0.3; // b
+            particleData[baseIndex + 7] = 1.0; // a
         }
 
         this.device.queue.writeBuffer(this.particleBuffer, 0, particleData);
 
         
         this.uniformBuffer = this.device.createBuffer({
-            size: 32, // 8 floats * 4 bytes (with padding for alignment)
+            size: 32, 
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
         });
     }
@@ -288,6 +302,12 @@ class ParticleSimulation {
                         buffer: this.particleBuffer,
                     },
                 },
+                {
+                    binding: 1,
+                    resource: {
+                        buffer: this.uniformBuffer,
+                    },
+                },
             ],
         });
     }
@@ -297,11 +317,11 @@ class ParticleSimulation {
             deltaTime,
             800.0, // width
             600.0, // height
-            50.0,  // gravity 
-            0.0,   // padding
-            0.0,   // padding
-            0.0,   // padding
-            0.0,   // padding
+            200.0, // gravity 
+            0.0,   
+            0.0,   
+            0.0,   
+            0.0,   
         ]);
         this.device.queue.writeBuffer(this.uniformBuffer, 0, uniformData);
     }

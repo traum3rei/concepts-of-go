@@ -13,7 +13,6 @@ import (
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 )
 
-// Particle represents a single particle in the simulation
 type Particle struct {
 	X, Y     float64 // Position
 	VX, VY   float64 // Velocity
@@ -21,7 +20,6 @@ type Particle struct {
 	Color    color.RGBA
 }
 
-// Simulation holds the state of the particle simulation
 type Simulation struct {
 	Particles []Particle
 	Width     float64
@@ -29,7 +27,6 @@ type Simulation struct {
 	DeltaTime float64
 }
 
-// NewSimulation creates a new particle simulation
 func NewSimulation(width, height float64, numParticles int) *Simulation {
 	sim := &Simulation{
 		Width:     width,
@@ -38,18 +35,17 @@ func NewSimulation(width, height float64, numParticles int) *Simulation {
 		Particles: make([]Particle, numParticles),
 	}
 
-	// Initialize particles with random positions and velocities
 	for i := range sim.Particles {
 		sim.Particles[i] = Particle{
-			X:     rand.Float64() * width,
-			Y:     rand.Float64() * height,
-			VX:    (rand.Float64() - 0.5) * 100,
-			VY:    (rand.Float64() - 0.5) * 100,
+			X:     50 + rand.Float64()*700,        
+			Y:     50 + rand.Float64()*250,       
+			VX:    (rand.Float64() - 0.5) * 50,   
+			VY:    rand.Float64() * 20,            
 			Mass:  1.0,
 			Color: color.RGBA{
-				R: uint8(rand.Float64() * 255),
-				G: uint8(rand.Float64() * 255),
-				B: uint8(rand.Float64() * 255),
+				R: uint8(25 + rand.Float64()*75),   
+				G: uint8(75 + rand.Float64()*100),
+				B: uint8(180 + rand.Float64()*75),
 				A: 255,
 			},
 		}
@@ -58,7 +54,6 @@ func NewSimulation(width, height float64, numParticles int) *Simulation {
 	return sim
 }
 
-// Update updates the simulation using parallel processing
 func (s *Simulation) Update() {
 	numWorkers := runtime.NumCPU()
 	particlesPerWorker := len(s.Particles) / numWorkers
@@ -82,40 +77,96 @@ func (s *Simulation) Update() {
 	wg.Wait()
 }
 
-// updateParticlesRange updates a range of particles
 func (s *Simulation) updateParticlesRange(start, end int) {
 	for i := start; i < end; i++ {
 		s.updateParticle(i)
 	}
 }
 
-// updateParticle updates a single particle
+// updateParticle updates a single particle with N-body physics
 func (s *Simulation) updateParticle(index int) {
 	particle := &s.Particles[index]
 
+	// Calculate forces
+	forceX := 0.0
+	forceY := 0.0
+
 	// Apply gravity
-	particle.VY -= 50 * s.DeltaTime
+	gravity := 200.0
+	forceY += gravity
+
+	// Calculate forces from nearby particles (N-body interaction)
+	smoothingRadius := 25.0
+
+	for i := range s.Particles {
+		if i == index {
+			continue
+		}
+
+		other := &s.Particles[i]
+		dx := particle.X - other.X
+		dy := particle.Y - other.Y
+		distSq := dx*dx + dy*dy
+
+		if distSq < smoothingRadius*smoothingRadius && distSq > 0.01 {
+			distance := math.Sqrt(distSq)
+			normalX := dx / distance
+			normalY := dy / distance
+
+			// Pressure force (repulsion) 
+			q := 1.0 - distance/smoothingRadius
+			pressureForce := 500.0 * q * q
+			forceX += normalX * pressureForce
+			forceY += normalY * pressureForce
+
+			// Viscosity force - light smoothing
+			viscosityForce := 0.02 * q
+			forceX += (other.VX - particle.VX) * viscosityForce
+			forceY += (other.VY - particle.VY) * viscosityForce
+		}
+	}
+
+	// Apply forces to velocity
+	particle.VX += forceX * s.DeltaTime
+	particle.VY += forceY * s.DeltaTime
+
+	// Clamp velocity to prevent instability
+	maxSpeed := 500.0
+	speed := math.Sqrt(particle.VX*particle.VX + particle.VY*particle.VY)
+	if speed > maxSpeed {
+		particle.VX = (particle.VX / speed) * maxSpeed
+		particle.VY = (particle.VY / speed) * maxSpeed
+	}
 
 	// Update position
 	particle.X += particle.VX * s.DeltaTime
 	particle.Y += particle.VY * s.DeltaTime
 
-	// Boundary collision with damping
-	if particle.X < 0 || particle.X > s.Width {
-		particle.VX *= -0.8
-		particle.X = math.Max(0, math.Min(s.Width, particle.X))
-	}
-	if particle.Y < 0 || particle.Y > s.Height {
-		particle.VY *= -0.8
-		particle.Y = math.Max(0, math.Min(s.Height, particle.Y))
+	// Boundary collision with bounce
+	margin := 5.0
+	bounce := 0.5
+
+	if particle.X < margin {
+		particle.VX = math.Abs(particle.VX) * bounce
+		particle.X = margin
+	} else if particle.X > s.Width-margin {
+		particle.VX = -math.Abs(particle.VX) * bounce
+		particle.X = s.Width - margin
 	}
 
-	// Add some air resistance
-	particle.VX *= 0.999
-	particle.VY *= 0.999
+	if particle.Y < margin {
+		particle.VY = math.Abs(particle.VY) * bounce
+		particle.Y = margin
+	} else if particle.Y > s.Height-margin {
+		particle.VY = -math.Abs(particle.VY) * bounce
+		particle.Y = s.Height - margin
+	}
+
+	// Light damping for stability
+	particle.VX *= 0.998
+	particle.VY *= 0.998
 }
 
-// Game represents the Ebiten game
 type Game struct {
 	simulation *Simulation
 	lastTime   time.Time
@@ -123,12 +174,10 @@ type Game struct {
 	lastFPS    time.Time
 }
 
-// Update updates the game state
 func (g *Game) Update() error {
 	now := time.Now()
 	g.lastTime = now
 
-	// Update simulation
 	g.simulation.Update()
 
 	// Update FPS counter
@@ -142,26 +191,20 @@ func (g *Game) Update() error {
 	return nil
 }
 
-// Draw draws the game
 func (g *Game) Draw(screen *ebiten.Image) {
-	// Clear screen
 	screen.Fill(color.RGBA{0, 0, 0, 255})
 
-	// Draw particles
 	for _, particle := range g.simulation.Particles {
-		// Draw a small circle for each particle
 		ebitenutil.DrawRect(screen, particle.X-1, particle.Y-1, 2, 2, particle.Color)
 	}
 }
 
-// Layout returns the game layout
 func (g *Game) Layout(outsideWidth, outsideHeight int) (screenWidth, screenHeight int) {
 	return 800, 600
 }
 
 func main() {
-	// Create simulation with 1000 particles
-	sim := NewSimulation(800, 600, 1000)
+	sim := NewSimulation(800, 600, 3000)
 
 	game := &Game{
 		simulation: sim,

@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebGPU Particle Simulation Benchmark</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Consolas', 'Monaco', monospace;
+            background: #1a1a2e;
+            color: #eee;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        h1 {
+            color: #00d9ff;
+            margin-bottom: 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        #output {
+            background: #0f0f1a;
+            border: 1px solid #333;
+            border-radius: 8px;
+            padding: 20px;
+            white-space: pre-wrap;
+            font-size: 14px;
+            line-height: 1.6;
+            min-height: 400px;
+            overflow-y: auto;
+        }
+        .controls {
+            margin-bottom: 20px;
+        }
+        button {
+            background: #00d9ff;
+            color: #1a1a2e;
+            border: none;
+            padding: 12px 24px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        button:hover {
+            background: #00b8d4;
+        }
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        .info {
+            background: #252540;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        .info h3 {
+            color: #00d9ff;
+            margin-bottom: 10px;
+        }
+        .spinner {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #333;
+            border-top-color: #00d9ff;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+            margin-left: 10px;
+            vertical-align: middle;
+        }
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>WebGPU Particle Simulation Benchmark</h1>
+
+        <div class="info">
+            <h3>About this benchmark</h3>
+            <p>This benchmark measures the performance of GPU-accelerated particle simulation using WebGPU compute shaders.</p>
+            <p>It tests particle physics calculations (N-body interactions) and rendering performance at different particle counts.</p>
+        </div>
+
+        <div class="controls">
+            <button id="runBtn" onclick="startBenchmark()">Run Benchmark</button>
+            <button id="copyBtn" onclick="copyResults()" disabled>Copy Results</button>
+            <span id="spinner" class="spinner hidden"></span>
+        </div>
+
+        <pre id="output">Click "Run Benchmark" to start...
+
+Requirements:
+- Chrome 113+ or Firefox 110+ with WebGPU enabled
+- A GPU with WebGPU support
+</pre>
+    </div>
+
+    <script src="benchmark.js"></script>
+    <script>
+        let benchmarkResults = null;
+
+        async function startBenchmark() {
+            const btn = document.getElementById('runBtn');
+            const copyBtn = document.getElementById('copyBtn');
+            const spinner = document.getElementById('spinner');
+            const output = document.getElementById('output');
+
+            btn.disabled = true;
+            copyBtn.disabled = true;
+            spinner.classList.remove('hidden');
+            output.textContent = 'Initializing WebGPU...\n';
+
+            try {
+                benchmarkResults = await runBenchmarks();
+                copyBtn.disabled = false;
+            } catch (error) {
+                output.textContent += `\nError: ${error.message}\n`;
+            } finally {
+                btn.disabled = false;
+                spinner.classList.add('hidden');
+            }
+        }
+
+        function copyResults() {
+            if (benchmarkResults) {
+                const text = JSON.stringify(benchmarkResults, null, 2);
+                navigator.clipboard.writeText(text).then(() => {
+                    alert('Results copied to clipboard!');
+                });
+            }
+        }
+    </script>
+</body>
+</html>
